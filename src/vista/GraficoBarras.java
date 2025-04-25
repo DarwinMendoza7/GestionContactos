@@ -3,16 +3,23 @@ package vista;
 import java.awt.*;
 import javax.swing.JPanel;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import util.InternationalizationManager;
 
 public class GraficoBarras extends JPanel {
     private Map<String, Integer> datos;
     private String titulo;
+    private Color[] colores = {
+        new Color(65, 105, 225),   // Azul real (familia)
+        new Color(34, 139, 34),    // Verde bosque (amigos)
+        new Color(178, 34, 34),    // Rojo ladrillo (trabajo)
+        new Color(255, 215, 0)     // Dorado (favoritos)
+    };
 
     public GraficoBarras(Map<String, Integer> datos, String titulo) {
         this.datos = datos;
         this.titulo = titulo;
         setBackground(Color.WHITE);
-        // Establecer un tamaño preferido para asegurar visibilidad
         setPreferredSize(new Dimension(600, 400));
     }
 
@@ -25,12 +32,12 @@ public class GraficoBarras extends JPanel {
         int ancho = getWidth();
         int alto = getHeight();
         int margen = 50;
-        int anchoBarras = (ancho - 2 * margen) / datos.size();
-
-        // Encontrar el valor máximo para escalar
-        int maxValor = datos.values().stream().max(Integer::compare).orElse(1);
+        int espacioBarras = 20; // Espacio entre barras
         
-        // Si el valor máximo es 0, usar 1 para evitar división por cero
+        // Calcular dimensiones
+        int numBarras = datos.size();
+        int anchoBarra = (ancho - 2 * margen - (numBarras - 1) * espacioBarras) / numBarras;
+        int maxValor = datos.values().stream().max(Integer::compare).orElse(1);
         if (maxValor == 0) maxValor = 1;
 
         // Dibujar título
@@ -44,55 +51,45 @@ public class GraficoBarras extends JPanel {
         g2d.drawLine(margen, alto - margen, ancho - margen, alto - margen); // Eje X
         g2d.drawLine(margen, margen, margen, alto - margen); // Eje Y
 
-        // Dibujar barras
-        int x = margen + 10;
-        g2d.setFont(new Font("Tahoma", Font.PLAIN, 12));
-
+        // Dibujar barras y etiquetas
+        int x = margen;
+        int colorIndex = 0;
+        
         for (Map.Entry<String, Integer> entry : datos.entrySet()) {
             String categoria = entry.getKey();
             int valor = entry.getValue();
 
-            // Calcular altura de la barra proporcional al valor
+            // Calcular altura de la barra
             int altoBarra = (int) (((alto - 2 * margen) * valor) / (double) maxValor);
-            
-            // Asegurar que la barra tenga al menos 1 pixel de altura si el valor es mayor que 0
-            if (valor > 0 && altoBarra < 1) {
-                altoBarra = 1;
-            }
+            if (valor > 0 && altoBarra < 1) altoBarra = 1;
 
             // Dibujar barra
-            switch (categoria) {
-                case "Familia":
-                    g2d.setColor(new Color(65, 105, 225)); // Azul real
-                    break;
-                case "Amigos":
-                    g2d.setColor(new Color(34, 139, 34)); // Verde bosque
-                    break;
-                case "Trabajo":
-                    g2d.setColor(new Color(178, 34, 34)); // Rojo ladrillo
-                    break;
-                case "Favoritos":
-                    g2d.setColor(new Color(255, 215, 0)); // Dorado
-                    break;
-                default:
-                    g2d.setColor(new Color(100, 100, 100)); // Gris
-            }
-
-            g2d.fillRect(x, alto - margen - altoBarra, anchoBarras - 20, altoBarra);
+            g2d.setColor(colores[colorIndex % colores.length]);
+            g2d.fillRect(x, alto - margen - altoBarra, anchoBarra, altoBarra);
             g2d.setColor(Color.BLACK);
-            g2d.drawRect(x, alto - margen - altoBarra, anchoBarras - 20, altoBarra);
+            g2d.drawRect(x, alto - margen - altoBarra, anchoBarra, altoBarra);
 
-            // Dibujar etiqueta
-            fm = g2d.getFontMetrics();
-            int anchoEtiqueta = fm.stringWidth(categoria);
-            g2d.drawString(categoria, x + (anchoBarras - 20 - anchoEtiqueta) / 2, alto - margen + 20);
-
-            // Dibujar valor
+            // Dibujar valor encima de la barra
+            g2d.setFont(new Font("Tahoma", Font.BOLD, 12));
             String valorStr = String.valueOf(valor);
-            int anchoValor = fm.stringWidth(valorStr);
-            g2d.drawString(valorStr, x + (anchoBarras - 20 - anchoValor) / 2, alto - margen - altoBarra - 5);
+            int anchoValor = g2d.getFontMetrics().stringWidth(valorStr);
+            g2d.drawString(valorStr, x + (anchoBarra - anchoValor)/2, alto - margen - altoBarra - 5);
 
-            x += anchoBarras;
+            // Dibujar etiqueta de categoría (horizontal)
+            g2d.setFont(new Font("Tahoma", Font.PLAIN, 12));
+            fm = g2d.getFontMetrics();
+            int anchoTexto = fm.stringWidth(categoria);
+            
+            // Ajustar texto largo
+            if (anchoTexto > anchoBarra) {
+                categoria = categoria.substring(0, Math.min(5, categoria.length())) + ".";
+                anchoTexto = fm.stringWidth(categoria);
+            }
+            
+            g2d.drawString(categoria, x + (anchoBarra - anchoTexto)/2, alto - margen + 20);
+
+            x += anchoBarra + espacioBarras;
+            colorIndex++;
         }
     }
 }
