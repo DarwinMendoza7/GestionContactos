@@ -9,27 +9,59 @@ Esta es una aplicación de escritorio para la gestión de contactos desarrollada
 -  **Estadísticas:** Visualización de estadísticas sobre los contactos, como el total de contactos, favoritos y por catgoría.  
 -  **Atajos de Teclado:** Agiliza la interacción con la aplicación mediante atajos de teclado para las acciones más comunes.    
 -  **Validaciones en Tiempo Real:** Asegura la calidad de los datos ingresados mediante validaciones en tiempo real de los campos de texto.
+-  **Búsqueda y Filtro:** Campo de búsqueda que filtra automáticamente la tabla de contactos.
+-  **Internacionalización (i18n):** Menú para cambiar el idioma de la interfaz (Español, Inglés y Francés disponibles).
+-  **Colores, Íconos y Fuentes Personalizadas:** Interfaz visualmente agradable con una clase centralizada de estilos.
+-  **Layouts bien organizados:** Uso de 'GridBagLayout', 'FlowLayout', 'BorderLayout', 'GridLayout' para mantener orden y adaptabilidad.  
 
 ## Tecnologías utilizadas ##  
 - Java
 - Swing
 - MVC (Modelo-Vista-Controlador)
 - SwingWorker (para tareas en segundo plano)
+- i18n (Java ResourceBundle para multilenguaje)
 
 ## Estructura del Proyecto ##  
 El proyecto está organizado de la siguiente manera:  
                                  
        /src
-            >main  
-               -Principal.java
-            >controlador
-               -Logica_ventana.java
-            >modelo
-               -Persona.java
-               -PersonaDAO.java
-            >vista
-               -Ventana.java
-               -GráficoBarras.java  
+       
+           >controlador
+	          -Logica_ventana.java
+	       >icons
+	          -add.png
+	          -amigos.png
+	          -contactos.png
+	          -default.png
+	          -delete.png
+	          -edit.png
+	          -español.png
+	          -export.png
+	          -familia.png
+	          -francés.png
+	          -idioma.png
+	          -inglés.png
+	          -search.png
+	          -trabajo.png 
+	       >main
+	          -Principal.java
+	       >modelo
+	          -Persona.java
+	          -PersonaDAO.java
+	       >util
+	          -InternationalizationManager.java
+	       >vista
+	          -Colores.java
+	          -Fuentes.java
+	          -GraficoBarras.java
+	          -IconComboItem.java
+	          -IconListRender,java
+	          -Ventana.java
+        /src/resources
+	          -messages_en.properties
+	          -messages_es-properties
+	          -messages_fr.properties
+  
 ## Uso ##  
 **1. Agregar Contacto:**  
 - Ingrese los datos del contacto en los campos correspondientes.
@@ -64,6 +96,15 @@ La aplicación incluye validaciones en tiempo real para los campos de texto:
 - **Nombre:** Solo se permiten letras y espacios.
 - **Teléfono:** Solo se permiten números.
 - **Email:** Formato de correo electrónico válido.
+
+## Internacionalización ##  
+La interfaz puede cambiar de idioma dinámicamente. Se implementó "ResourceBundle" y se puede extender fácilmente a otros idiomas.  
+-**Idiomas disponibles:**  
+-Español  
+-Inglés  
+-Francés  
+
+
 
 ## Instrucciones para Clonar y Ejecutar el Proyecto ##
 **1.** Asegurate de tener Git instalado en tu sistema. Puedes verificarlo abriendo una terminal y ejecutando el siguiente comando:
