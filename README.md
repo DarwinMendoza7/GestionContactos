@@ -1,5 +1,5 @@
 # Aplicación de Gestion de Contactos  
-Esta es una aplicación de escritorio para la gestión de contactos desarrollada en Java con Swing. Permite a los usuarios agregar, editar, eliminar y exportar contactos a un archivo CSV. Además, ofrece una visualización de estadísticas y la posibilidad de ordenar y filtrar los contactos.  
+Esta es una aplicación de escritorio para la gestión de contactos desarrollada en Java con Swing. Permite a los usuarios agregar, editar, eliminar y exportar contactos a un archivo CSV. Además, ofrece una visualización de estadísticas, la posibilidad de ordenar y filtrar los contactos, búsqueda avanzada, validación en tiempo real e internacionalización.  
 
 ## Características principales ##  
 - **Interfaz Gráfica Intuitiva:** La interfaz está organizada en pestañas para facilitar la navegación.  
@@ -13,13 +13,16 @@ Esta es una aplicación de escritorio para la gestión de contactos desarrollada
 -  **Internacionalización (i18n):** Menú para cambiar el idioma de la interfaz (Español, Inglés y Francés disponibles).
 -  **Colores, Íconos y Fuentes Personalizadas:** Interfaz visualmente agradable con una clase centralizada de estilos.
 -  **Layouts bien organizados:** Uso de 'GridBagLayout', 'FlowLayout', 'BorderLayout', 'GridLayout' para mantener orden y adaptabilidad.  
+-  **Notificaciones en tiempor real:** para informar al usuario sin bloquear la UI.
+-  **Sincronización y bloqueo de contactos:** Para evitar conflictos en edición y eliminación, incluso en varias ventanas abiertas.
 
 ## Tecnologías utilizadas ##  
-- Java
-- Swing
-- MVC (Modelo-Vista-Controlador)
-- SwingWorker (para tareas en segundo plano)
-- i18n (Java ResourceBundle para multilenguaje)
+- Java.
+- Swing.
+- MVC (Modelo-Vista-Controlador.
+- Programación concurrente con SwingWorker (para tareas en segundo plano) y ExecutorService.
+- Sincronización con ReentrantLock y gestión de locks multiinstancia (ContactLockManager).
+- i18n (Java ResourceBundle para multilenguaje).  
 
 ## Estructura del Proyecto ##  
 El proyecto está organizado de la siguiente manera:  
@@ -27,7 +30,11 @@ El proyecto está organizado de la siguiente manera:
        /src
        
            >controlador
+	   	  -BuscadorContactos.java
+       	  -ConsolePerformanceTester.java
+	   	  -ExportadorCSV.java
 	          -Logica_ventana.java
+	   	  -ValidadorContactos.java
 	       >icons
 	          -add.png
 	          -amigos.png
@@ -49,7 +56,10 @@ El proyecto está organizado de la siguiente manera:
 	          -Persona.java
 	          -PersonaDAO.java
 	       >util
+		  -ContactLockManager.java
+    	  -FileLockManager.java
 	          -InternationalizationManager.java
+	   	  -Notificador.java
 	       >vista
 	          -Colores.java
 	          -Fuentes.java
@@ -66,20 +76,26 @@ El proyecto está organizado de la siguiente manera:
 **1. Agregar Contacto:**  
 - Ingrese los datos del contacto en los campos correspondientes.
 - Seleccione una categoría y marque si es un contacto favorito.
-- Haga clic en el botón "Agregar" o presione Ctrl + A.
+- Haga clic en el botón "Agregar" o presione Ctrl + A.  
+- La interfaz se realiza en segundo plano, la interfaz permanece activa.
+- Si el contacto ya existe, se mostrará un mensaje de advertencia.  
   
 **2. Editar un Contacto:**  
 - Seleccione el contacto de la tabla.  
 - Modifique los datos en los campos correspondientes.
 - Haga clic en el botón "Modificar" o presione Ctrl + M.
+- El sistema bloquea el contacto para evitar ediciones simultáneas (incluso entre diferentes ventanas).
+- Si el contacto está bloqueado en otra ventana o instancia, se mostrará un mensaje.  
     
 **3. Eliminar un contacto:**
 - Seleccione el contacto de la tabla.
 - Haga clic en el botón "Eliminar" o presiona Ctrl + D.
+- La eliminación se realiza en segundo plano con bloqueo para evitar conflictos.  
     
 **4. Exportar Contactos a CSV:**
 - Haga clic en el botón "Exportar" o presione Ctrl + E.
 - Seleccione la ubicación y el nombre del archivo CSV.
+- La exportación se realiza en segundo plano con sincronización para evitar corrupción de datos si hay exportaciones simultáneas.  
     
 **5. Busqueda de Contactos:**
 - Ingrese el término de búsqueda en el campo "Buscar".
@@ -100,11 +116,13 @@ La aplicación incluye validaciones en tiempo real para los campos de texto:
 ## Internacionalización ##  
 La interfaz puede cambiar de idioma dinámicamente. Se implementó "ResourceBundle" y se puede extender fácilmente a otros idiomas.  
 -**Idiomas disponibles:**  
--Español  
--Inglés  
--Francés  
+- Español  
+- Inglés  
+- Francés  
 
-
+## Sincronización y bloqueo ##  
+- Uso de ReentrantLock para evitar que múltiples hilos o instancias modifiquen el mismo contacto simultaneamente.  
+- Implementación de ContactLockManager para bloqueo multiinstancia, asegurando que solo una ventana de la aplicación pueda editar/eliminar un contacto a la vez.
 
 ## Instrucciones para Clonar y Ejecutar el Proyecto ##
 **1.** Asegurate de tener Git instalado en tu sistema. Puedes verificarlo abriendo una terminal y ejecutando el siguiente comando:
