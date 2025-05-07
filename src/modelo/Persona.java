@@ -88,4 +88,8 @@ public class Persona {
     public Object[] toTableRow() {
         return new Object[]{nombre, telefono, email, categoria, favorito};
     }
+    
+    public String toCSVLine() {
+        return String.format("%s,%s,%s,%s,%s", nombre, telefono, email, categoria, favorito);
+    }
 }

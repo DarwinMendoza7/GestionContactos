@@ -4,11 +4,17 @@ import java.awt.Color;
 import java.awt.event.*;
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
+
 import javax.swing.*;
 import javax.swing.event.*;
 import javax.swing.table.DefaultTableModel;
@@ -19,18 +25,26 @@ import vista.Ventana;
 import vista.GraficoBarras;
 import vista.IconComboItem;
 import modelo.*;
+import util.ContactLockManager;
 import util.InternationalizationManager;
+import util.Notificador;
 
 public class Logica_ventana implements ActionListener, ListSelectionListener, ItemListener, KeyListener, MouseListener {
-    private Ventana delegado;
-    private String nombres, email, telefono, categoria = "";
-    private Persona persona;
-    private List<Persona> contactos = new ArrayList<>();
-    private boolean favorito = false;
-    private int selectedIndex = -1;
-
+    private Ventana delegado; //Referencia a la interfaz gráfica (ventana principal) que esta clase controla.
+    private String nombres, email, telefono, categoria = ""; //Variables para almacenar temporalmente los datos ingresados o seleccionados para un contacto
+    private Persona persona; //Objeto que representa un contacto individual
+    private List<Persona> contactos = new ArrayList<>(); //Lista en memoria que contiene todos los contactos cargados desde almacenamiento.
+    private boolean favorito = false; // Indica si el contacto actual está marcado como favorito
+    private int selectedIndex = -1; //Índice del contacto actualmente seleccionado en la lista o tabla
+    private BuscadorContactos buscadorActual; //Referencia a la tarea de búsqueda en segundo plano que filtra contactos según texto de búsqueda
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor(); //permite ejecutar tareas e segundo plano (hilos) de forma controlada
+    private Timer searchTimer; //Temporizador que retrasa la ejecución de la búsqueda mientras el usuario escribe, para evitar búsquedas excesivas
+    private final ReentrantLock exportLock = new ReentrantLock(); //Se usa para proteger secciones críticas del código que no deben ser ejecutadas par más de un hilo al mismo tiempo
+    private ExportadorCSV exportadorActual; //Referencia a la tarea de exportación de contactos a CSV que se ejecuta en segundo plano.
+    
     public Logica_ventana(Ventana delegado) {
         this.delegado = delegado;
+        Notificador.getInstancia(); //Inicializa el notificador
         
         // Cargar contactos al iniciar
         cargarContactosRegistrados();
@@ -131,7 +145,8 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
         return contactos;
     }
 
-    private void configurarValidacionEnTiempoReal() {
+    //Validación en tiempo real de los diferentes campos
+    private void configurarValidacionEnTiempoReal() { //Validación en tiempo real para el campo Nombre
         delegado.txt_nombres.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { validarCampoNombre(); }
             @Override public void removeUpdate(DocumentEvent e) { validarCampoNombre(); }
@@ -148,7 +163,7 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
                 }
             }
         });
-        
+        //Validación en tiempo real para el campo teléfono
         delegado.txt_telefono.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { validarCampoTelefono(); }
             @Override public void removeUpdate(DocumentEvent e) { validarCampoTelefono(); }
@@ -165,7 +180,7 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
                 }
             }
         });
-        
+        //validación en tiempo real para el campo email
         delegado.txt_email.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { validarCampoEmail(); }
             @Override public void removeUpdate(DocumentEvent e) { validarCampoEmail(); }
@@ -183,7 +198,7 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
             }
         });
     }
-
+    //Valida todos los campos antes de guardar o modificar un contacto.
     private boolean validarCampos() {
         // Validar nombres (solo letras y espacios)
         if (!validarNombre(delegado.txt_nombres.getText())) {
@@ -238,75 +253,107 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
         email = delegado.txt_email.getText();
         telefono = delegado.txt_telefono.getText();
     }
-    
+    //Carga los contactos registrados utilizando un SwingWorker para evitar bloquear la interfaz
     private void cargarContactosRegistrados() {
-    	 try {
-    	        delegado.progressBar.setValue(0);
-    	        delegado.progressBar.setString(InternationalizationManager.getString("progress.loading"));
-    	        
-    	        SwingWorker<Void, Integer> worker = new SwingWorker<Void, Integer>() {
-    	            @Override
-    	            protected Void doInBackground() throws Exception {
-    	                publish(20);
-    	                contactos = new PersonaDAO(new Persona()).leerArchivo();
-    	                publish(60);
-    	                Thread.sleep(300);
-    	                publish(90);
-    	                return null;
-    	            }
-    	            
-    	            @Override
-    	            protected void process(List<Integer> chunks) {
-    	                for (int progress : chunks) {
-    	                    delegado.progressBar.setValue(progress);
-    	                }
-    	            }
-    	            
-    	            @Override
-    	            protected void done() {
-    	                try {
-    	                    // Actualizar tabla
-    	                    DefaultTableModel model = (DefaultTableModel) delegado.tablaContactos.getModel();
-    	                    model.setRowCount(0);
-    	                    
-    	                    DefaultListModel<String> listaModelo = new DefaultListModel<>();
-    	                    
-    	                    for (Persona contacto : contactos) {
-    	                        if (!contacto.getNombre().equals("NOMBRE")) {
-    	                            model.addRow(new Object[]{
-    	                                contacto.getNombre(),
-    	                                contacto.getTelefono(),
-    	                                contacto.getEmail(),
-    	                                InternationalizationManager.getString("category." + contacto.getCategoria().toLowerCase()),
-    	                                contacto.isFavorito()
-    	                            });
-    	                            listaModelo.addElement(contacto.formatoLista());
-    	                        }
-    	                    }
-    	                    
-    	                    delegado.lst_contactos.setModel(listaModelo);
-    	                    delegado.progressBar.setValue(100);
-    	                    delegado.progressBar.setString(InternationalizationManager.getString("progress.loaded"));
-    	                    
-    	                    // Actualizar estadísticas después de cargar contactos
-    	                    actualizarEstadisticas();
-    	                    
-    	                } catch (Exception e) {
-    	                    e.printStackTrace();
-    	                }
-    	            }
-    	        };
-    	        
-    	        worker.execute();
-    	    } catch (Exception e) {
-    	        JOptionPane.showMessageDialog(delegado, 
-    	            InternationalizationManager.getString("error.load.contacts") + ": " + e.getMessage());
-    	        delegado.progressBar.setValue(0);
-    	        delegado.progressBar.setString(InternationalizationManager.getString("error.loading"));
-    	    }
-    }
+        try {
+            // Configuración inicial de la barra de progreso
+            SwingUtilities.invokeLater(() -> {
+                delegado.progressBar.setValue(0);
+                delegado.progressBar.setString(InternationalizationManager.getString("progress.loading"));
+                delegado.progressBar.setIndeterminate(true);
+            });
+            //SwingWorker ejecuta doInBackground() en un hilo separado (no bloquea el EDT)
+            SwingWorker<List<Persona>, Integer> worker = new SwingWorker<List<Persona>, Integer>() {
+                @Override
+                protected List<Persona> doInBackground() throws Exception {
+                    publish(25); // Primer progreso visible
+                    List<Persona> contactosCargados = new PersonaDAO(new Persona()).leerArchivo();
+                    publish(75); // Progreso después de leer archivo
+                    return contactosCargados;
+                }
 
+                @Override
+                protected void process(List<Integer> chunks) {
+                    // Tomamos el último valor de progreso recibido
+                    int progreso = chunks.get(chunks.size() - 1);
+                    delegado.progressBar.setValue(progreso);
+                    delegado.progressBar.setString(progreso + "%");
+                }
+
+                @Override
+                protected void done() {
+                    try {
+                        contactos = get(); // Obtiene el resultado del hilo en background
+                        
+                        // Actualizar interfaz en el EDT
+                        SwingUtilities.invokeLater(() -> {
+                            // Actualizar tabla
+                            DefaultTableModel model = (DefaultTableModel) delegado.tablaContactos.getModel();
+                            model.setRowCount(0);
+                            
+                            // Actualizar lista
+                            DefaultListModel<String> listaModelo = new DefaultListModel<>();
+                            
+                            for (Persona contacto : contactos) {
+                                if (!contacto.getNombre().equals("NOMBRE")) {
+                                    model.addRow(new Object[]{
+                                        contacto.getNombre(),
+                                        contacto.getTelefono(),
+                                        contacto.getEmail(),
+                                        obtenerTraduccionCategoria(contacto.getCategoria()),
+                                        contacto.isFavorito()
+                                    });
+                                    listaModelo.addElement(contacto.formatoLista());
+                                }
+                            }
+                            
+                            delegado.lst_contactos.setModel(listaModelo);
+                            
+                            // Actualizar estadísticas
+                            actualizarEstadisticas();
+                            
+                            // Completar barra de progreso
+                            delegado.progressBar.setIndeterminate(false);
+                            delegado.progressBar.setValue(100);
+                            delegado.progressBar.setString(InternationalizationManager.getString("progress.loaded"));
+                        });
+                        
+                    } catch (Exception e) { //Manejo de errores en el EDT
+                        SwingUtilities.invokeLater(() -> {
+                            JOptionPane.showMessageDialog(delegado, 
+                                InternationalizationManager.getString("error.load.contacts") + ": " + e.getMessage(),
+                                InternationalizationManager.getString("error.title"),
+                                JOptionPane.ERROR_MESSAGE);
+                            delegado.progressBar.setIndeterminate(false);
+                            delegado.progressBar.setString(InternationalizationManager.getString("error.loading"));
+                        });
+                    }
+                }
+            };
+            
+            worker.execute();  //Inicia el hilo en background
+        } catch (Exception e) {
+            SwingUtilities.invokeLater(() -> {
+                JOptionPane.showMessageDialog(delegado, 
+                    InternationalizationManager.getString("error.load.contacts") + ": " + e.getMessage(),
+                    InternationalizationManager.getString("error.title"),
+                    JOptionPane.ERROR_MESSAGE);
+                delegado.progressBar.setIndeterminate(false);
+                delegado.progressBar.setString(InternationalizationManager.getString("error.loading"));
+            });
+        }
+    }
+    //Limpia los campos de la interfaz y libera el bloqueo sobre el contacto seleccionado
     private void limpiarCampos() {
+    	
+    	 // Liberar el bloqueo del contacto actualmente seleccionado
+        if (selectedIndex != -1 && selectedIndex < contactos.size()) {
+            String contactName = contactos.get(selectedIndex).getNombre();
+            if (ContactLockManager.hasLock(contactName)) {
+                ContactLockManager.unlock(contactName); //Libera el lock
+            }
+        }
+    	//Limpiar campos de la interfaz
         delegado.txt_nombres.setText("");
         delegado.txt_telefono.setText("");
         delegado.txt_email.setText("");
@@ -316,7 +363,7 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
         delegado.cmb_categoria.setSelectedIndex(0);
         incializacionCampos();
         selectedIndex = -1;
-        
+        //Restaurar el color y tooltips de validación
         delegado.txt_nombres.setBackground(Color.WHITE);
         delegado.txt_telefono.setBackground(Color.WHITE);
         delegado.txt_email.setBackground(Color.WHITE);
@@ -327,59 +374,143 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
         
         cargarContactosRegistrados();
     }
-
+    //Carga los datos de un contacto en la interfaz y gestiona el bloqueo de edición
     private void cargarContacto(int index) {
         if (index >= 0 && index < contactos.size()) {
-            selectedIndex = index;
-            delegado.txt_nombres.setText(contactos.get(index).getNombre());
-            delegado.txt_telefono.setText(contactos.get(index).getTelefono());
-            delegado.txt_email.setText(contactos.get(index).getEmail());
-            delegado.chb_favorito.setSelected(contactos.get(index).isFavorito());
+        	//Liberar bloqueo del contacto anterior
+        	if (selectedIndex != -1 && selectedIndex < contactos.size()) {
+                String prevContact = contactos.get(selectedIndex).getNombre();
+                if (ContactLockManager.hasLock(prevContact)) {
+                    ContactLockManager.unlock(prevContact);
+                }
+            }
+            //  Liberar bloqueo del contacto anterior
+            String previouslySelected = selectedIndex != -1 ? contactos.get(selectedIndex).getNombre() : null;
+            if (previouslySelected != null) {
+                ContactLockManager.unlock(previouslySelected); // Usar unlock()
+            }
             
-            // Actualizar combo box según la categoría almacenada
-            String categoriaAlmacenada = contactos.get(index).getCategoria();
-            for (int i = 0; i < delegado.cmb_categoria.getItemCount(); i++) {
-                IconComboItem item = delegado.cmb_categoria.getItemAt(i);
-                if (item.getText().equals(InternationalizationManager.getString("category." + categoriaAlmacenada.toLowerCase()))) {
-                    delegado.cmb_categoria.setSelectedIndex(i);
-                    break;
-                }
-            }
-        }
-    }
-    
-    private void eliminarContacto(int index) {
-        if (index >= 0 && index < contactos.size()) {
-            int confirmacion = JOptionPane.showConfirmDialog(delegado, 
-                InternationalizationManager.getString("message.confirm.delete") + " " + contactos.get(index).getNombre() + "?",
-                InternationalizationManager.getString("title.confirm.delete"), 
-                JOptionPane.YES_NO_OPTION);
-                
-            if (confirmacion == JOptionPane.YES_OPTION) {
+            // Obtener nuevo contacto
+            selectedIndex = index;
+            String currentContactName = contactos.get(index).getNombre();
+            
+            // Intentar bloquear (nuevo sistema)
+            if (ContactLockManager.tryLock(currentContactName)) { //  Usar tryLock() directo
                 try {
-                    contactos.remove(index);
-                    new PersonaDAO(new Persona()).actualizarContactos(contactos);
+                    //  Cargar datos en UI
+                    delegado.txt_nombres.setText(contactos.get(index).getNombre());
+                    delegado.txt_telefono.setText(contactos.get(index).getTelefono());
+                    delegado.txt_email.setText(contactos.get(index).getEmail());
+                    delegado.chb_favorito.setSelected(contactos.get(index).isFavorito());
                     
-                    selectedIndex = -1;
-                    cargarContactosRegistrados();
-                    
-                    JOptionPane.showMessageDialog(delegado, 
-                        InternationalizationManager.getString("message.contact.deleted"));
-                    
-                    delegado.txt_nombres.setText("");
-                    delegado.txt_telefono.setText("");
-                    delegado.txt_email.setText("");
-                    delegado.chb_favorito.setSelected(false);
-                    delegado.cmb_categoria.setSelectedIndex(0);
-                    
-                } catch (IOException e) {
-                    JOptionPane.showMessageDialog(delegado, 
-                        InternationalizationManager.getString("message.error.delete") + ": " + e.getMessage());
+                    //  Cargar categoría
+                    String categoriaAlmacenada = contactos.get(index).getCategoria();
+                    for (int i = 0; i < delegado.cmb_categoria.getItemCount(); i++) {
+                        IconComboItem item = delegado.cmb_categoria.getItemAt(i);
+                        if (item.getText().equals(InternationalizationManager.getString("category." + categoriaAlmacenada.toLowerCase()))) {
+                            delegado.cmb_categoria.setSelectedIndex(i);
+                            break;
+                        }
+                    }
+                } finally {
+                    // No liberamos aquí el lock porque debe persistir mientras se edita
+                    // Se liberará al guardar/cancelar/limpiar
                 }
+            } else {
+                JOptionPane.showMessageDialog(delegado, 
+                    InternationalizationManager.getString("message.contact.locked") + ": " + currentContactName,
+                    InternationalizationManager.getString("title.contact.locked"),
+                    JOptionPane.WARNING_MESSAGE);
+                selectedIndex = -1;
             }
         }
     }
-    
+    //Elimina un contacto de la lista, asegurando que sólo una instancia pueda hacerlo a la vez
+    private void eliminarContacto(int index) {
+    	  if (index >= 0 && index < contactos.size()) {
+    	        Persona contacto = contactos.get(index);
+    	       
+    	        try {
+    	        	//Intentar adquirir el lock del contacto a eliminar
+    	            if (ContactLockManager.tryLock(contacto.getNombre())) {
+    	                try {
+    	                    int confirmacion = JOptionPane.showConfirmDialog(
+    	                        delegado, 
+    	                        InternationalizationManager.getString("message.confirm.delete") + " " + 
+    	                        contacto.getNombre() + "?",
+    	                        InternationalizationManager.getString("title.confirm.delete"), 
+    	                        JOptionPane.YES_NO_OPTION,
+    	                        JOptionPane.WARNING_MESSAGE
+    	                    );
+
+    	                    if (confirmacion == JOptionPane.YES_OPTION) {
+    	                        delegado.progressBar.setIndeterminate(true);
+    	                        delegado.progressBar.setString(InternationalizationManager.getString("progress.deleting"));
+    	                        //Ejecuta la eliminación en segundo plano
+    	                        new SwingWorker<Void, Void>() {
+    	                            @Override
+    	                            protected Void doInBackground() throws Exception {
+    	                                try {
+    	                                    String nombreContacto = contacto.getNombre();
+    	                                    contactos.remove(index);
+    	                                    new PersonaDAO(new Persona()).actualizarContactos(contactos);
+    	                                    
+    	                                    SwingUtilities.invokeLater(() -> {
+    	                                        Notificador.getInstancia().encolarMensaje(
+    	                                            InternationalizationManager.getString("notification.contact.deleted") + ": " + 
+    	                                            nombreContacto
+    	                                        );
+    	                                    });
+    	                                } catch (IOException e) {
+    	                                    SwingUtilities.invokeLater(() -> {
+    	                                        Notificador.getInstancia().encolarMensaje(
+    	                                            InternationalizationManager.getString("notification.error.delete") + ": " + 
+    	                                            e.getMessage()
+    	                                        );
+    	                                    });
+    	                                    throw e;
+    	                                }
+    	                                return null;
+    	                            }
+
+    	                            @Override
+    	                            protected void done() {
+    	                                delegado.progressBar.setIndeterminate(false);
+    	                                try {
+    	                                    get();
+    	                                    selectedIndex = -1;
+    	                                    limpiarCampos();
+    	                                    cargarContactosRegistrados();
+    	                                    delegado.progressBar.setString(InternationalizationManager.getString("progress.deleted"));
+    	                                } catch (Exception e) {
+    	                                    delegado.progressBar.setString(InternationalizationManager.getString("error.deleting"));
+    	                                }
+    	                            }
+    	                        }.execute();
+    	                    }
+    	                } finally { //Simepre liberar el lock, haya o no éxito
+    	                    ContactLockManager.unlock(contacto.getNombre());
+    	                }
+    	            } else { //Si no se puede adquirir el lock, avisar al usuario
+    	                JOptionPane.showMessageDialog(delegado, 
+    	                    InternationalizationManager.getString("message.contact.locked.delete") + ": " + contacto.getNombre(),
+    	                    InternationalizationManager.getString("title.contact.locked"),
+    	                    JOptionPane.WARNING_MESSAGE);
+    	            }
+    	        } catch (Exception e) {
+    	            Thread.currentThread().interrupt();
+    	            JOptionPane.showMessageDialog(delegado, 
+    	                InternationalizationManager.getString("message.operation.interrupted"),
+    	                InternationalizationManager.getString("title.error"),
+    	                JOptionPane.ERROR_MESSAGE);
+    	        }
+    	    } else {
+    	        Notificador.getInstancia().encolarMensaje(
+    	            InternationalizationManager.getString("notification.select.contact.delete")
+    	        );
+    	    }
+    }
+    //Actualiza las estadísticas mostradas en la interfaz, contando contactos totales, favoritos y por categoría (familia, amigos, trabajo)
     private void actualizarEstadisticas() {
     	 try {
     	        // Reiniciamos contadores
@@ -410,21 +541,21 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
     	            }
     	        }
 
-    	        // Actualizamos las etiquetas
+    	        // Actualizamos las etiquetas de la UI con los valores calculados
     	        delegado.lblTotalContactos.setText(InternationalizationManager.getString("stats.total") + ": " + total);
     	        delegado.lblFavoritos.setText(InternationalizationManager.getString("stats.favorites") + ": " + favoritos);
     	        delegado.lblFamilia.setText(InternationalizationManager.getString("stats.family") + ": " + familia);
     	        delegado.lblAmigos.setText(InternationalizationManager.getString("stats.friends") + ": " + amigos);
     	        delegado.lblTrabajo.setText(InternationalizationManager.getString("stats.work") + ": " + trabajo);
 
-    	        // Preparamos datos para el gráfico
+    	        // Preparamos datos para el gráfico de barras
     	        Map<String, Integer> datosGrafico = new LinkedHashMap<>();
     	        datosGrafico.put(InternationalizationManager.getString("category.family"), familia);
     	        datosGrafico.put(InternationalizationManager.getString("category.friends"), amigos);
     	        datosGrafico.put(InternationalizationManager.getString("category.work"), trabajo);
     	        datosGrafico.put(InternationalizationManager.getString("stats.favorites"), favoritos);
 
-    	        // Actualizamos el gráfico
+    	        // Actualizamos el gráfico con los datos calculados
     	        actualizarGrafico(datosGrafico);
 
     	    } catch (Exception e) {
@@ -433,8 +564,7 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
     	            InternationalizationManager.getString("error.stats") + ": " + e.getMessage());
     	    }
     }
-    
-
+    //Actualiza el panel de gráficos con un gráfico de barras basado en los datos proporcionados
 	private void actualizarGrafico(Map<String, Integer> datos) {
 	    GraficoBarras grafico = new GraficoBarras(datos, 
 	        InternationalizationManager.getString("stats.title"));
@@ -443,47 +573,152 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
 	    delegado.panelGraficas.revalidate();
 	    delegado.panelGraficas.repaint();
 	}
-    
-    private void filtrarContactos() {
-        String textoBusqueda = delegado.txt_buscar.getText().toLowerCase();
-        TableRowSorter<DefaultTableModel> sorter = new TableRowSorter<>((DefaultTableModel) delegado.tablaContactos.getModel());
-        delegado.tablaContactos.setRowSorter(sorter);
-        
-        if (textoBusqueda.trim().length() == 0) {
-            sorter.setRowFilter(null);
-        } else {
-            sorter.setRowFilter(RowFilter.regexFilter("(?i)" + textoBusqueda));
+    //Filtra la lista de contactos en base al texto ingresado en el campo de búsqueda
+	private void filtrarContactos() {
+	    String textoBusqueda = delegado.txt_buscar.getText().trim();
+	    //Cancelar búsqueda previa si está en curso
+	    if (buscadorActual != null && !buscadorActual.isDone()) {
+	        buscadorActual.cancel(true);
+	    }
+	    
+	    delegado.progressBar.setValue(0);
+	    delegado.progressBar.setString("0%");
+	    delegado.progressBar.setStringPainted(true);
+	    
+	    // Pasar la barra de progreso como nuevo parámetro
+	    buscadorActual = new BuscadorContactos(contactos, textoBusqueda, 
+	                                         delegado.tablaContactos, delegado.modeloTabla,
+	                                         delegado.progressBar); // Pasamos la barra de progreso
+	    //Ejecutar la búsqueda en el ExecutorService (hilo en background)
+	    executorService.execute(buscadorActual);
+	}
+    //Agrega el ExecutorService que maneja tareas en background
+    public void shutdown() {
+        executorService.shutdownNow();
+        try {
+            if (!executorService.awaitTermination(1, TimeUnit.SECONDS)) {
+                executorService.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
-    
+    //Obtiene la traducción de la categoría para mostrar en la interfaz
+    private String obtenerTraduccionCategoria(String categoria) {
+        if (categoria == null || categoria.isEmpty()) {
+            return InternationalizationManager.getString("category.choose");
+        }
+        
+        // Normalizar la categoría para comparación
+        String catLower = categoria.toLowerCase();
+        
+        if (catLower.contains("family") || catLower.contains("familia")) {
+            return InternationalizationManager.getString("category.family");
+        } else if (catLower.contains("friends") || catLower.contains("amigos")) {
+            return InternationalizationManager.getString("category.friends");
+        } else if (catLower.contains("work") || catLower.contains("trabajo")) {
+            return InternationalizationManager.getString("category.work");
+        }
+        
+        return categoria; // Si no coincide, devolver el original
+    }
+    //Exporta la lista de contactos a un archivo CSV de forma asíncrona y segura.
+    private void exportarContactosCSV(Path archivo) {
+        //Si hay una exportación en curso la cancelamos
+    	if (exportadorActual != null && !exportadorActual.isDone()) {
+            exportadorActual.cancel(true);
+        }
+        //Inicializar la barra de progreso
+        delegado.progressBar.setValue(0);
+        delegado.progressBar.setString("Exportando... 0%");
+        delegado.progressBar.setStringPainted(true);
+        //Crear el SwingWorker para exportar en background
+        exportadorActual = new ExportadorCSV(contactos, archivo, exportLock);
+        
+        //  Listener para actualizar progreso y estado en la barra de progreso
+        exportadorActual.addPropertyChangeListener(evt -> {
+            if ("progress".equals(evt.getPropertyName())) {
+                int progreso = (Integer) evt.getNewValue();
+                delegado.progressBar.setValue(progreso);
+                delegado.progressBar.setString("Exportando... " + progreso + "%");
+            }
+            //Cuando termina la exportación (éxito o error)
+            if ("state".equals(evt.getPropertyName()) && 
+                SwingWorker.StateValue.DONE == evt.getNewValue()) {
+                
+                if (!exportadorActual.isCancelled()) {
+                    try {
+                        if (exportadorActual.get()) {
+                        	
+                        	delegado.progressBar.setValue(100);
+                        	delegado.progressBar.setString("Exportación completada");
+                            Notificador.getInstancia().encolarMensaje(
+                                InternationalizationManager.getString("notification.export.success"));
+                        }
+                    } catch (Exception ex) {
+                    	 delegado.progressBar.setString("Error en exportación");
+                        Notificador.getInstancia().encolarMensaje(
+                            InternationalizationManager.getString("notification.error"));
+                       
+                    }
+                }
+            }
+        });
+        //Ejecutar la exportación en background
+        exportadorActual.execute();
+    }
+    //Maneja los eventos de los botones principales de la interfaz
     @Override
     public void actionPerformed(ActionEvent e) {
         incializacionCampos();
-        
+        //Agregar contacto
         if (e.getSource() == delegado.btn_add) {
             if ((!nombres.equals("")) && (!telefono.equals("")) && (!email.equals(""))) {
                 if ((!categoria.equals(InternationalizationManager.getString("category.choose"))) && (!categoria.equals(""))) {
                     if (validarCampos()) {
-                        // Guardar la categoría en inglés para consistencia interna
-                        String categoriaInterna = "";
-                        if (categoria.equals(InternationalizationManager.getString("category.family"))) {
-                            categoriaInterna = "family";
-                        } else if (categoria.equals(InternationalizationManager.getString("category.friends"))) {
-                            categoriaInterna = "friends";
-                        } else if (categoria.equals(InternationalizationManager.getString("category.work"))) {
-                            categoriaInterna = "work";
-                        }
+                        // Deshabilitar botón mientras se valida
+                        delegado.btn_add.setEnabled(false);
+                        delegado.progressBar.setIndeterminate(true);
+                        delegado.progressBar.setString(InternationalizationManager.getString("progress.validating"));
                         
-                        persona = new Persona(nombres, telefono, email, categoriaInterna, favorito);
-                        boolean exito = new PersonaDAO(persona).escribirArchivo();
-                        if (exito) {
-                            limpiarCampos();
-                            JOptionPane.showMessageDialog(delegado, 
-                                InternationalizationManager.getString("message.contact.added"));
-                        } else {
-                            JOptionPane.showMessageDialog(delegado, 
-                                InternationalizationManager.getString("message.error.add"));
-                        }
+                        // Iniciar validación en segundo plano
+                        new ValidadorContactos(contactos, nombres, telefono, email, new ValidadorContactos.ValidadorCallback() {
+                            @Override
+                            public void onValidacionCompletada(boolean existeDuplicado) {
+                                delegado.progressBar.setIndeterminate(false);
+                                delegado.btn_add.setEnabled(true);
+                                
+                                if (existeDuplicado) {
+                                    JOptionPane.showMessageDialog(delegado, 
+                                        InternationalizationManager.getString("message.duplicate.contact"));
+                                    delegado.progressBar.setString(InternationalizationManager.getString("error.duplicate"));
+                                } else {
+                                    // Guardar la categoría en inglés para consistencia interna
+                                    String categoriaInterna = "";
+                                    if (categoria.equals(InternationalizationManager.getString("category.family"))) {
+                                        categoriaInterna = "family";
+                                    } else if (categoria.equals(InternationalizationManager.getString("category.friends"))) {
+                                        categoriaInterna = "friends";
+                                    } else if (categoria.equals(InternationalizationManager.getString("category.work"))) {
+                                        categoriaInterna = "work";
+                                    }
+                                    
+                                    persona = new Persona(nombres, telefono, email, categoriaInterna, favorito);
+                                    boolean exito = new PersonaDAO(persona).escribirArchivo();
+                                    if (exito) {
+                                        limpiarCampos();
+                                        Notificador.getInstancia().encolarMensaje(
+                                                InternationalizationManager.getString("notification.contact.saved"));
+                                            delegado.progressBar.setString(InternationalizationManager.getString("progress.saved"));
+                                    } else {
+                                        JOptionPane.showMessageDialog(delegado, 
+                                            InternationalizationManager.getString("message.error.add"));
+                                        delegado.progressBar.setString(InternationalizationManager.getString("error.saving"));
+                                    }
+                                }
+                            }
+                        }).start();
                     }
                 } else {
                     JOptionPane.showMessageDialog(delegado, 
@@ -493,43 +728,77 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
                 JOptionPane.showMessageDialog(delegado, 
                     InternationalizationManager.getString("message.fill.fields"));
             }
-        } else if (e.getSource() == delegado.btn_eliminar) {
+        } 
+        else if (e.getSource() == delegado.btn_eliminar) { //Eliminar contacto
             if (selectedIndex != -1) {
                 eliminarContacto(selectedIndex);
             } else {
                 JOptionPane.showMessageDialog(delegado, 
                     InternationalizationManager.getString("message.select.contact.delete"));
             }
-        } else if (e.getSource() == delegado.btn_modificar) {
+        } //Modificar contacto
+        else if (e.getSource() == delegado.btn_modificar) {
             if (selectedIndex != -1 && (!nombres.equals("")) && (!telefono.equals("")) && (!email.equals(""))) {
                 if ((!categoria.equals(InternationalizationManager.getString("category.choose"))) && (!categoria.equals(""))) {
                     if (validarCampos()) {
-                        try {
-                            // Guardar la categoría en inglés para consistencia interna
-                            String categoriaInterna = "";
-                            if (categoria.equals(InternationalizationManager.getString("category.family"))) {
-                                categoriaInterna = "family";
-                            } else if (categoria.equals(InternationalizationManager.getString("category.friends"))) {
-                                categoriaInterna = "friends";
-                            } else if (categoria.equals(InternationalizationManager.getString("category.work"))) {
-                                categoriaInterna = "work";
+                        final Persona contacto = contactos.get(selectedIndex);
+                        final boolean yaBloqueado = ContactLockManager.hasLock(contacto.getNombre());
+                        
+                        if (!yaBloqueado && !ContactLockManager.tryLock(contacto.getNombre())) {
+                            JOptionPane.showMessageDialog(delegado, 
+                                InternationalizationManager.getString("message.contact.locked.modify") + ": " + contacto.getNombre(),
+                                InternationalizationManager.getString("title.contact.locked"),
+                                JOptionPane.WARNING_MESSAGE);
+                            return;
+                        }
+                        //Modificación en segundo plano usando SwingWorker
+                        new SwingWorker<Boolean, Void>() {
+                            @Override
+                            protected Boolean doInBackground() throws Exception {
+                                try {
+                                    String categoriaInterna = "";
+                                    if (categoria.equals(InternationalizationManager.getString("category.family"))) {
+                                        categoriaInterna = "family";
+                                    } else if (categoria.equals(InternationalizationManager.getString("category.friends"))) {
+                                        categoriaInterna = "friends";
+                                    } else if (categoria.equals(InternationalizationManager.getString("category.work"))) {
+                                        categoriaInterna = "work";
+                                    }
+                                    
+                                    contacto.setNombre(nombres);
+                                    contacto.setTelefono(telefono);
+                                    contacto.setEmail(email);
+                                    contacto.setCategoria(categoriaInterna);
+                                    contacto.setFavorito(favorito);
+                                    
+                                    new PersonaDAO(new Persona()).actualizarContactos(contactos);
+                                    return true;
+                                } catch (IOException ex) {
+                                    return false;
+                                }
                             }
                             
-                            contactos.get(selectedIndex).setNombre(nombres);
-                            contactos.get(selectedIndex).setTelefono(telefono);
-                            contactos.get(selectedIndex).setEmail(email);
-                            contactos.get(selectedIndex).setCategoria(categoriaInterna);
-                            contactos.get(selectedIndex).setFavorito(favorito);
-                            
-                            new PersonaDAO(new Persona()).actualizarContactos(contactos);
-                            
-                            limpiarCampos();
-                            JOptionPane.showMessageDialog(delegado, 
-                                InternationalizationManager.getString("message.contact.modified"));
-                        } catch (IOException ex) {
-                            JOptionPane.showMessageDialog(delegado, 
-                                InternationalizationManager.getString("message.error.modify") + ": " + ex.getMessage());
-                        }
+                            @Override
+                            protected void done() {
+                                try {
+                                    if (get()) {
+                                        limpiarCampos();
+                                        JOptionPane.showMessageDialog(delegado, 
+                                            InternationalizationManager.getString("message.contact.modified"));
+                                    } else {
+                                        JOptionPane.showMessageDialog(delegado, 
+                                            InternationalizationManager.getString("message.error.modify"));
+                                    }
+                                } catch (Exception ex) {
+                                    JOptionPane.showMessageDialog(delegado, 
+                                        InternationalizationManager.getString("message.error.modify") + ": " + ex.getMessage());
+                                } finally {
+                                    if (!yaBloqueado) {
+                                        ContactLockManager.unlock(contacto.getNombre());
+                                    }
+                                }
+                            }
+                        }.execute();
                     }
                 } else {
                     JOptionPane.showMessageDialog(delegado, 
@@ -539,7 +808,8 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
                 JOptionPane.showMessageDialog(delegado, 
                     InternationalizationManager.getString("message.select.contact.modify"));
             }
-        } else if (e.getSource() == delegado.btn_exportar) {
+        } 
+        else if (e.getSource() == delegado.btn_exportar) { //Exportar contactos a CSV
             JFileChooser fileChooser = new JFileChooser();
             fileChooser.setDialogTitle(InternationalizationManager.getString("button.export"));
             fileChooser.setSelectedFile(new File("contactos_exportados.csv"));
@@ -554,56 +824,58 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
                     ruta += ".csv";
                 }
                 
-                final String rutaFinal = ruta;
+                final Path rutaFinal = Path.of(ruta);
+                
+                // Configurar barra de progreso
                 delegado.progressBar.setValue(0);
-                delegado.progressBar.setString(InternationalizationManager.getString("progress.exporting"));
+                delegado.progressBar.setString("0%");
+                delegado.progressBar.setStringPainted(true);
                 
-                SwingWorker<Boolean, Integer> worker = new SwingWorker<Boolean, Integer>() {
-                    @Override
-                    protected Boolean doInBackground() throws Exception {
-                        publish(25);
-                        Thread.sleep(500);
-                        publish(50);
-                        boolean resultado = new PersonaDAO(new Persona()).exportarCSV(rutaFinal);
-                        publish(75);
-                        Thread.sleep(500);
-                        publish(100);
-                        return resultado;
+                // Cancelar exportación anterior si existe
+                if (exportadorActual != null && !exportadorActual.isDone()) {
+                    exportadorActual.cancel(true);
+                }
+                
+                // Crear nuevo exportador
+                exportadorActual = new ExportadorCSV(contactos, rutaFinal, exportLock);
+                
+                // Configurar listeners de progreso
+                exportadorActual.addPropertyChangeListener(evt -> {
+                    if ("progress".equals(evt.getPropertyName())) {
+                        int progreso = (Integer) evt.getNewValue();
+                        delegado.progressBar.setValue(progreso);
+                        delegado.progressBar.setString(progreso + "%");
                     }
                     
-                    @Override
-                    protected void process(List<Integer> chunks) {
-                        for (int progress : chunks) {
-                            delegado.progressBar.setValue(progress);
-                        }
-                    }
-                    
-                    @Override
-                    protected void done() {
-                        try {
-                            boolean exito = get();
-                            if (exito) {
-                                delegado.progressBar.setString(InternationalizationManager.getString("progress.exported"));
-                                JOptionPane.showMessageDialog(delegado, 
-                                    InternationalizationManager.getString("message.export.success") + " " + rutaFinal);
-                            } else {
-                                delegado.progressBar.setString(InternationalizationManager.getString("error.exporting"));
-                                JOptionPane.showMessageDialog(delegado, 
-                                    InternationalizationManager.getString("message.export.error"));
+                    if ("state".equals(evt.getPropertyName()) && 
+                        SwingWorker.StateValue.DONE == evt.getNewValue()) {
+                        
+                        if (!exportadorActual.isCancelled()) {
+                            try {
+                                if (exportadorActual.get()) {
+                                    delegado.progressBar.setString("Exportación completada");
+                                    JOptionPane.showMessageDialog(delegado,
+                                        InternationalizationManager.getString("message.export.success") + "\n" + rutaFinal.toString(),
+                                        InternationalizationManager.getString("title.export.success"),
+                                        JOptionPane.INFORMATION_MESSAGE);
+                                }
+                            } catch (Exception ex) {
+                                delegado.progressBar.setString("Error en exportación");
+                                JOptionPane.showMessageDialog(delegado,
+                                    InternationalizationManager.getString("message.export.error") + ":\n" + ex.getMessage(),
+                                    InternationalizationManager.getString("title.export.error"),
+                                    JOptionPane.ERROR_MESSAGE);
                             }
-                        } catch (Exception e) {
-                            delegado.progressBar.setString(InternationalizationManager.getString("error.exporting"));
-                            JOptionPane.showMessageDialog(delegado, 
-                                InternationalizationManager.getString("message.export.error") + ": " + e.getMessage());
                         }
                     }
-                };
+                });
                 
-                worker.execute();
+                // Ejecutar exportación
+                executorService.execute(exportadorActual);
             }
         }
     }
-
+    //Se ejecuta cuando cambia la selección en la lista de contactos
     @Override
     public void valueChanged(ListSelectionEvent e) {
         if (!e.getValueIsAdjusting()) {
@@ -611,7 +883,7 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
             if (index != -1) {
                 int realIndex = -1;
                 int contador = 0;
-                
+                //Buscar el índice real del contacto (ignorando "NOMBRE")
                 for (int i = 0; i < contactos.size(); i++) {
                     if (!contactos.get(i).getNombre().equals("NOMBRE")) {
                         if (contador == index) {
@@ -623,8 +895,8 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
                 }
                 
                 if (realIndex != -1) {
-                    cargarContacto(realIndex);
-                    
+                    cargarContacto(realIndex);  //Gestiona el bloqueo del contacto
+                    //Sincronizar selecci´n en la tabla
                     for (int i = 0; i < delegado.tablaContactos.getRowCount(); i++) {
                         if (delegado.tablaContactos.getValueAt(i, 0).equals(contactos.get(realIndex).getNombre())) {
                             delegado.tablaContactos.setRowSelectionInterval(i, i);
@@ -635,7 +907,7 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
             }
         }
     }
-
+    //Se ejecuta cuando cambia el estado de un ítem en la interfaz
     @Override
     public void itemStateChanged(ItemEvent e) {
         if (e.getSource() == delegado.cmb_categoria) {
@@ -655,26 +927,35 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
     @Override
     public void keyReleased(KeyEvent e) {
         if (e.getSource() == delegado.txt_buscar) {
-            filtrarContactos();
-        }
+        	 if (searchTimer != null) {
+                 searchTimer.stop();
+             }
+             //Esperar 400 ms antes de filtrar
+             searchTimer = new Timer(400, event -> {
+                 filtrarContactos();
+             });
+             searchTimer.setRepeats(false);
+             searchTimer.start();
+         }
+        
     }
-
+    //Se utiliza cuando el usuario hace clic en la tabla de contactos
     @Override
     public void mouseClicked(MouseEvent e) {
         if (e.getSource() == delegado.tablaContactos) {
             int row = delegado.tablaContactos.rowAtPoint(e.getPoint());
             
             if (row >= 0) {
-                if (e.getClickCount() == 1 && e.getButton() == MouseEvent.BUTTON1) {
+                if (e.getClickCount() == 1 && e.getButton() == MouseEvent.BUTTON1) { //Clic izquierdo: cargar contacto
                     int modelRow = delegado.tablaContactos.convertRowIndexToModel(row);
                     for (int i = 0; i < contactos.size(); i++) {
                         if (contactos.get(i).getNombre().equals(delegado.tablaContactos.getModel().getValueAt(modelRow, 0))) {
-                            cargarContacto(i);
+                            cargarContacto(i);  //Gestiona el lock
                             break;
                         }
                     }
                 }
-                
+                //Clic derecho: mnstrar menú contextual
                 if (e.getButton() == MouseEvent.BUTTON3) {
                     delegado.tablaContactos.setRowSelectionInterval(row, row);
                     delegado.popupMenu.show(delegado.tablaContactos, e.getX(), e.getY());

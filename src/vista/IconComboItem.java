@@ -1,10 +1,10 @@
 package vista;
 
 import javax.swing.Icon;
-
+//Clase simple para representar un elemento de una lista o combo que contiene tanto un texto xomo un ícono
 public class IconComboItem {
-    private String text;
-    private Icon icon;
+    private String text; //Texto que se mostrará en el combo/lista
+    private Icon icon; //Ïcono asociado a este elemento
     
     public IconComboItem(String text, Icon icon) {
         this.text = text;

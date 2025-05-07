@@ -9,6 +9,8 @@ import javax.swing.table.TableRowSorter;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.net.URL;
 import java.util.Locale;
 import javax.swing.ImageIcon;
@@ -19,46 +21,46 @@ import util.InternationalizationManager;
 
 public class Ventana extends JFrame {
 
-    public JPanel contentPane;
-    public JTextField txt_nombres;
-    public JTextField txt_telefono;
-    public JTextField txt_email;
-    public JTextField txt_buscar;
-    public JCheckBox chb_favorito;
-    public JComboBox<IconComboItem> cmb_categoria;
-    public JButton btn_add;
-    public JButton btn_modificar;
-    public JButton btn_eliminar;
-    public JButton btn_exportar;
-    public JList<String> lst_contactos;
-    public JScrollPane scrLista;
-    public JTabbedPane tabbedPane;
-    public JPanel panelContactos;
-    public JPanel panelEstadisticas;
-    public JTable tablaContactos;
-    public DefaultTableModel modeloTabla;
-    public JProgressBar progressBar;
-    public JPopupMenu popupMenu;
-    public JMenuItem menuItemEditar;
-    public JMenuItem menuItemEliminar;
-    public JPanel panelGraficas;
-    
-    public JLabel lbl_nombres;
-    public JLabel lbl_telefono;
-    public JLabel lbl_email;
-    public JLabel lbl_buscar;
-    public JLabel lbl_listaContactos;
+    public JPanel contentPane;  //Panel principal que contiene todos los elementos de la ventana
+    public JTextField txt_nombres; //Campo para el nombre del contacto
+    public JTextField txt_telefono; //Campo para el teléfono del contacto
+    public JTextField txt_email; //Campo para el email del contacto
+    public JTextField txt_buscar; //Campo para buscar contactos por texto
+    public JCheckBox chb_favorito; //Chexkbox para marcar un contacto como favorito
+    public JComboBox<IconComboItem> cmb_categoria; // ComboBox para seleccionar la categoría del contacto (familia, amigos, trabajo, etc)
+    public JButton btn_add; //Botón para agregar un nuevo contacto
+    public JButton btn_modificar; //Botón para modificar el contacto seleccionado
+    public JButton btn_eliminar; //Botón para eliminar el contacto seleccionado
+    public JButton btn_exportar; //Botón para exportar los contactos a CSV
+    public JList<String> lst_contactos; //Lista visual de contactos
+    public JScrollPane scrLista; //ScrollPane que contiene la lista de contactos
+    public JTabbedPane tabbedPane; //Pestañas principales (Contactos, Estadísticas)
+    public JPanel panelContactos; //Panel para la gestión de contactos
+    public JPanel panelEstadisticas; //Panel para mostrar estadísticas
+    public JTable tablaContactos; //Tabla para mostrar los contactos en formato tabular
+    public DefaultTableModel modeloTabla; //Modelo de datos para la tabla de contactos
+    public JProgressBar progressBar; //Barra de progreso para mostrar operaciones en curso
+    public JPopupMenu popupMenu; //Menú contextual (clic derecho) sobre la tabla de contactos
+    public JMenuItem menuItemEditar; //Opción para editar contacto desde el menú contextual
+    public JMenuItem menuItemEliminar; //Opción para eliminar contacto desde el menú contextual
+    public JPanel panelGraficas; //Panel para mostrar gráficos
+    //Etiquetas para los campos y la lista
+    public JLabel lbl_nombres;  //Etiqueta para el campo de nombre del contacto
+    public JLabel lbl_telefono; //Etiqueta para el campo de teléfono del contacto
+    public JLabel lbl_email; //Etiqueta para el campo de email del contacto
+    public JLabel lbl_buscar; //Etiqueta para el campo de búsqueda de contactos
+    public JLabel lbl_listaContactos; //Etiqueta para la lista visual de contactos
     
     // Componentes para estadísticas
-    public JLabel lblTotalContactos;
-    public JLabel lblFavoritos;
-    public JLabel lblFamilia;
-    public JLabel lblAmigos;
-    public JLabel lblTrabajo;
+    public JLabel lblTotalContactos; //Total de contactos registrados
+    public JLabel lblFavoritos; //Total de contactos marcados como favoritos
+    public JLabel lblFamilia; //Total de contactos en la categoría familia
+    public JLabel lblAmigos; //Total de contactos en la categoría amigos
+    public JLabel lblTrabajo; //Total de contactos en la categoría trabajo
     
-    public JMenuBar menuBar;
+    public JMenuBar menuBar; //Barra de menú principal de la aplicación
     
-    private Logica_ventana logica;
+    private Logica_ventana logica; //Referencia a la lógica/controlador principal que maneja los eventos y operaciones
     
     public Ventana() {
         // Configurar idioma inicial
@@ -533,6 +535,14 @@ public class Ventana extends JFrame {
             btn_exportar.setVerticalTextPosition(SwingConstants.BOTTOM);
         }
         
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                if (logica != null) {
+                    logica.shutdown();
+                }
+            }
+        });
         // Inicializar el controlador
         logica = new Logica_ventana(this);
     }
