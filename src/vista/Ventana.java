@@ -17,6 +17,7 @@ import javax.swing.ImageIcon;
 
 import controlador.Logica_ventana;
 import modelo.Persona;
+import util.ContactLockManager;
 import util.InternationalizationManager;
 
 public class Ventana extends JFrame {
@@ -538,9 +539,17 @@ public class Ventana extends JFrame {
         addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
+                // Liberar todos los bloqueos al cerrar la ventana
+                ContactLockManager.getInstance().releaseAllLocks();
+                
+                // Cerrar los hilos del ejecutor
                 if (logica != null) {
                     logica.shutdown();
                 }
+                
+                // Cierra la aplicación
+                dispose();
+                System.exit(0);
             }
         });
         // Inicializar el controlador

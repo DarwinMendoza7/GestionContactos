@@ -345,15 +345,17 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
     }
     //Limpia los campos de la interfaz y libera el bloqueo sobre el contacto seleccionado
     private void limpiarCampos() {
-    	
-    	 // Liberar el bloqueo del contacto actualmente seleccionado
+        // Liberar el bloqueo del contacto actualmente seleccionado
         if (selectedIndex != -1 && selectedIndex < contactos.size()) {
-            String contactName = contactos.get(selectedIndex).getNombre();
-            if (ContactLockManager.hasLock(contactName)) {
-                ContactLockManager.unlock(contactName); //Libera el lock
+            String nombreContacto = contactos.get(selectedIndex).getNombre();
+            ContactLockManager lockManager = ContactLockManager.getInstance();
+            
+            if (lockManager.hasLock(nombreContacto)) {
+                lockManager.unlock(nombreContacto);
             }
         }
-    	//Limpiar campos de la interfaz
+        
+        // Limpiar campos de la interfaz
         delegado.txt_nombres.setText("");
         delegado.txt_telefono.setText("");
         delegado.txt_email.setText("");
@@ -363,7 +365,8 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
         delegado.cmb_categoria.setSelectedIndex(0);
         incializacionCampos();
         selectedIndex = -1;
-        //Restaurar el color y tooltips de validación
+        
+        // Restaurar el color y tooltips de validación
         delegado.txt_nombres.setBackground(Color.WHITE);
         delegado.txt_telefono.setBackground(Color.WHITE);
         delegado.txt_email.setBackground(Color.WHITE);
@@ -376,139 +379,181 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
     }
     //Carga los datos de un contacto en la interfaz y gestiona el bloqueo de edición
     private void cargarContacto(int index) {
-        if (index >= 0 && index < contactos.size()) {
-        	//Liberar bloqueo del contacto anterior
-        	if (selectedIndex != -1 && selectedIndex < contactos.size()) {
-                String prevContact = contactos.get(selectedIndex).getNombre();
-                if (ContactLockManager.hasLock(prevContact)) {
-                    ContactLockManager.unlock(prevContact);
-                }
-            }
-            //  Liberar bloqueo del contacto anterior
-            String previouslySelected = selectedIndex != -1 ? contactos.get(selectedIndex).getNombre() : null;
-            if (previouslySelected != null) {
-                ContactLockManager.unlock(previouslySelected); // Usar unlock()
-            }
-            
-            // Obtener nuevo contacto
-            selectedIndex = index;
-            String currentContactName = contactos.get(index).getNombre();
-            
-            // Intentar bloquear (nuevo sistema)
-            if (ContactLockManager.tryLock(currentContactName)) { //  Usar tryLock() directo
-                try {
-                    //  Cargar datos en UI
-                    delegado.txt_nombres.setText(contactos.get(index).getNombre());
-                    delegado.txt_telefono.setText(contactos.get(index).getTelefono());
-                    delegado.txt_email.setText(contactos.get(index).getEmail());
-                    delegado.chb_favorito.setSelected(contactos.get(index).isFavorito());
-                    
-                    //  Cargar categoría
-                    String categoriaAlmacenada = contactos.get(index).getCategoria();
-                    for (int i = 0; i < delegado.cmb_categoria.getItemCount(); i++) {
-                        IconComboItem item = delegado.cmb_categoria.getItemAt(i);
-                        if (item.getText().equals(InternationalizationManager.getString("category." + categoriaAlmacenada.toLowerCase()))) {
-                            delegado.cmb_categoria.setSelectedIndex(i);
-                            break;
-                        }
-                    }
-                } finally {
-                    // No liberamos aquí el lock porque debe persistir mientras se edita
-                    // Se liberará al guardar/cancelar/limpiar
-                }
-            } else {
-                JOptionPane.showMessageDialog(delegado, 
-                    InternationalizationManager.getString("message.contact.locked") + ": " + currentContactName,
-                    InternationalizationManager.getString("title.contact.locked"),
-                    JOptionPane.WARNING_MESSAGE);
-                selectedIndex = -1;
-            }
+        // Validación básica del índice
+        if (index < 0 || index >= contactos.size()) {
+            return;
         }
+
+        // Obtener el nuevo contacto a cargar
+        Persona nuevoContacto = contactos.get(index);
+        String nombreNuevoContacto = nuevoContacto.getNombre();
+        ContactLockManager lockManager = ContactLockManager.getInstance();
+
+        //  Ya estamos editando este mismo contacto
+        if (selectedIndex != -1 && contactos.get(selectedIndex).getNombre().equals(nombreNuevoContacto)) {
+            cargarDatosContacto(index);
+            return;
+        }
+
+        //  El contacto ya está bloqueado por otro usuario/hilo
+        if (!lockManager.tryLock(nombreNuevoContacto)) {
+            mostrarMensajeContactoBloqueado(nombreNuevoContacto);
+            return;
+        }
+
+        //  Podemos bloquear el nuevo contacto
+        try {
+            // Liberar el bloqueo del contacto anterior (si existe)
+            liberarBloqueoContactoActual();
+
+            // Actualizar el índice seleccionado
+            selectedIndex = index;
+
+            // Cargar los datos en la interfaz
+            cargarDatosContacto(index);
+        } catch (Exception e) {
+            // En caso de error, liberar el bloqueo
+            lockManager.unlock(nombreNuevoContacto);
+            selectedIndex = -1;
+            JOptionPane.showMessageDialog(delegado, 
+                "Error al cargar el contacto: " + e.getMessage(),
+                "Error",
+                JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    // Método auxiliar para cargar datos en la UI
+    private void cargarDatosContacto(int index) {
+        Persona contacto = contactos.get(index);
+        
+        SwingUtilities.invokeLater(() -> {
+            delegado.txt_nombres.setText(contacto.getNombre());
+            delegado.txt_telefono.setText(contacto.getTelefono());
+            delegado.txt_email.setText(contacto.getEmail());
+            delegado.chb_favorito.setSelected(contacto.isFavorito());
+            
+            // Configurar la categoría adecuada en el ComboBox
+            String categoriaAlmacenada = contacto.getCategoria();
+            for (int i = 0; i < delegado.cmb_categoria.getItemCount(); i++) {
+                IconComboItem item = delegado.cmb_categoria.getItemAt(i);
+                if (item.getText().equals(InternationalizationManager.getString("category." + categoriaAlmacenada.toLowerCase()))) {
+                    delegado.cmb_categoria.setSelectedIndex(i);
+                    break;
+                }
+            }
+        });
+    }
+
+    // Método auxiliar para liberar el bloqueo actual
+    private void liberarBloqueoContactoActual() {
+        if (selectedIndex != -1 && selectedIndex < contactos.size()) {
+            String nombreActual = contactos.get(selectedIndex).getNombre();
+            ContactLockManager.getInstance().unlock(nombreActual);
+        }
+    }
+
+    // Método auxiliar para mostrar mensaje de contacto bloqueado
+    private void mostrarMensajeContactoBloqueado(String nombreContacto) {
+        SwingUtilities.invokeLater(() -> {
+            JOptionPane.showMessageDialog(delegado, 
+                InternationalizationManager.getString("message.contact.locked") + ": " + nombreContacto,
+                InternationalizationManager.getString("title.contact.locked"),
+                JOptionPane.WARNING_MESSAGE);
+        });
     }
     //Elimina un contacto de la lista, asegurando que sólo una instancia pueda hacerlo a la vez
     private void eliminarContacto(int index) {
-    	  if (index >= 0 && index < contactos.size()) {
-    	        Persona contacto = contactos.get(index);
-    	       
-    	        try {
-    	        	//Intentar adquirir el lock del contacto a eliminar
-    	            if (ContactLockManager.tryLock(contacto.getNombre())) {
-    	                try {
-    	                    int confirmacion = JOptionPane.showConfirmDialog(
-    	                        delegado, 
-    	                        InternationalizationManager.getString("message.confirm.delete") + " " + 
-    	                        contacto.getNombre() + "?",
-    	                        InternationalizationManager.getString("title.confirm.delete"), 
-    	                        JOptionPane.YES_NO_OPTION,
-    	                        JOptionPane.WARNING_MESSAGE
-    	                    );
+        if (index >= 0 && index < contactos.size()) {
+            Persona contacto = contactos.get(index);
+            ContactLockManager lockManager = ContactLockManager.getInstance(); // Declaración correcta
+            int confirmacion = JOptionPane.NO_OPTION; 
+            try {
+                // Intentar adquirir el lock del contacto a eliminar
+                if (lockManager.tryLock(contacto.getNombre())) {
+                    try {
+                            confirmacion = JOptionPane.showConfirmDialog(
+                            delegado, 
+                            InternationalizationManager.getString("message.confirm.delete") + " " + 
+                            contacto.getNombre() + "?",
+                            InternationalizationManager.getString("title.confirm.delete"), 
+                            JOptionPane.YES_NO_OPTION,
+                            JOptionPane.WARNING_MESSAGE
+                        );
 
-    	                    if (confirmacion == JOptionPane.YES_OPTION) {
-    	                        delegado.progressBar.setIndeterminate(true);
-    	                        delegado.progressBar.setString(InternationalizationManager.getString("progress.deleting"));
-    	                        //Ejecuta la eliminación en segundo plano
-    	                        new SwingWorker<Void, Void>() {
-    	                            @Override
-    	                            protected Void doInBackground() throws Exception {
-    	                                try {
-    	                                    String nombreContacto = contacto.getNombre();
-    	                                    contactos.remove(index);
-    	                                    new PersonaDAO(new Persona()).actualizarContactos(contactos);
-    	                                    
-    	                                    SwingUtilities.invokeLater(() -> {
-    	                                        Notificador.getInstancia().encolarMensaje(
-    	                                            InternationalizationManager.getString("notification.contact.deleted") + ": " + 
-    	                                            nombreContacto
-    	                                        );
-    	                                    });
-    	                                } catch (IOException e) {
-    	                                    SwingUtilities.invokeLater(() -> {
-    	                                        Notificador.getInstancia().encolarMensaje(
-    	                                            InternationalizationManager.getString("notification.error.delete") + ": " + 
-    	                                            e.getMessage()
-    	                                        );
-    	                                    });
-    	                                    throw e;
-    	                                }
-    	                                return null;
-    	                            }
+                        if (confirmacion == JOptionPane.YES_OPTION) {
+                            delegado.progressBar.setIndeterminate(true);
+                            delegado.progressBar.setString(InternationalizationManager.getString("progress.deleting"));
+                            
+                            // Ejecuta la eliminación en segundo plano
+                            new SwingWorker<Void, Void>() {
+                                @Override
+                                protected Void doInBackground() throws Exception {
+                                    try {
+                                        String nombreContacto = contacto.getNombre();
+                                        contactos.remove(index);
+                                        new PersonaDAO(new Persona()).actualizarContactos(contactos);
+                                        
+                                        SwingUtilities.invokeLater(() -> {
+                                            Notificador.getInstancia().encolarMensaje(
+                                                InternationalizationManager.getString("notification.contact.deleted") + ": " + 
+                                                nombreContacto
+                                            );
+                                        });
+                                    } catch (IOException e) {
+                                        SwingUtilities.invokeLater(() -> {
+                                            Notificador.getInstancia().encolarMensaje(
+                                                InternationalizationManager.getString("notification.error.delete") + ": " + 
+                                                e.getMessage()
+                                            );
+                                        });
+                                        throw e;
+                                    }
+                                    return null;
+                                }
 
-    	                            @Override
-    	                            protected void done() {
-    	                                delegado.progressBar.setIndeterminate(false);
-    	                                try {
-    	                                    get();
-    	                                    selectedIndex = -1;
-    	                                    limpiarCampos();
-    	                                    cargarContactosRegistrados();
-    	                                    delegado.progressBar.setString(InternationalizationManager.getString("progress.deleted"));
-    	                                } catch (Exception e) {
-    	                                    delegado.progressBar.setString(InternationalizationManager.getString("error.deleting"));
-    	                                }
-    	                            }
-    	                        }.execute();
-    	                    }
-    	                } finally { //Simepre liberar el lock, haya o no éxito
-    	                    ContactLockManager.unlock(contacto.getNombre());
-    	                }
-    	            } else { //Si no se puede adquirir el lock, avisar al usuario
-    	                JOptionPane.showMessageDialog(delegado, 
-    	                    InternationalizationManager.getString("message.contact.locked.delete") + ": " + contacto.getNombre(),
-    	                    InternationalizationManager.getString("title.contact.locked"),
-    	                    JOptionPane.WARNING_MESSAGE);
-    	            }
-    	        } catch (Exception e) {
-    	            Thread.currentThread().interrupt();
-    	            JOptionPane.showMessageDialog(delegado, 
-    	                InternationalizationManager.getString("message.operation.interrupted"),
-    	                InternationalizationManager.getString("title.error"),
-    	                JOptionPane.ERROR_MESSAGE);
-    	        }
-    	    } else {
-    	        Notificador.getInstancia().encolarMensaje(
-    	            InternationalizationManager.getString("notification.select.contact.delete")
-    	        );
-    	    }
+                                @Override
+                                protected void done() {
+                                    delegado.progressBar.setIndeterminate(false);
+                                    try {
+                                        get();
+                                        selectedIndex = -1;
+                                        limpiarCampos();
+                                        cargarContactosRegistrados();
+                                        delegado.progressBar.setString(InternationalizationManager.getString("progress.deleted"));
+                                    } catch (Exception e) {
+                                        delegado.progressBar.setString(InternationalizationManager.getString("error.deleting"));
+                                    } finally {
+                                        // Asegurarse de liberar el lock después de la eliminación
+                                        lockManager.unlock(contacto.getNombre());
+                                    }
+                                }
+                            }.execute();
+                        }
+                    } finally {
+                        // Liberar el lock si no se procedió con la eliminación
+                        if (confirmacion != JOptionPane.YES_OPTION) {
+                            lockManager.unlock(contacto.getNombre());
+                        }
+                    }
+                } else {
+                    // Si no se puede adquirir el lock, avisar al usuario
+                    JOptionPane.showMessageDialog(delegado, 
+                        InternationalizationManager.getString("message.contact.locked.delete") + ": " + contacto.getNombre(),
+                        InternationalizationManager.getString("title.contact.locked"),
+                        JOptionPane.WARNING_MESSAGE);
+                }
+            } catch (Exception e) {
+                Thread.currentThread().interrupt();
+                JOptionPane.showMessageDialog(delegado, 
+                    InternationalizationManager.getString("message.operation.interrupted"),
+                    InternationalizationManager.getString("title.error"),
+                    JOptionPane.ERROR_MESSAGE);
+            }
+        } else {
+            Notificador.getInstancia().encolarMensaje(
+                InternationalizationManager.getString("notification.select.contact.delete")
+            );
+        }
     }
     //Actualiza las estadísticas mostradas en la interfaz, contando contactos totales, favoritos y por categoría (familia, amigos, trabajo)
     private void actualizarEstadisticas() {
@@ -603,7 +648,7 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
             executorService.shutdownNow();
             Thread.currentThread().interrupt();
         }
-    }
+   }
     //Obtiene la traducción de la categoría para mostrar en la interfaz
     private String obtenerTraduccionCategoria(String categoria) {
         if (categoria == null || categoria.isEmpty()) {
@@ -668,6 +713,31 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
         //Ejecutar la exportación en background
         exportadorActual.execute();
     }
+    //Muestra el estado de bloqueo para un contacto específico
+    public void mostrarEstadoBloqueo(String nombreContacto) {
+        ContactLockManager lockManager = ContactLockManager.getInstance(); //Obtener la instancia del gestor de locks
+        boolean tieneLock = lockManager.hasLock(nombreContacto); //Verificar si esta instancia ya tiene el lock para el contacto
+        boolean puedeLock = lockManager.tryLock(nombreContacto); // Intentar adquirir el lock para el contacto (sin bloquear)
+        
+        if (tieneLock) {
+            JOptionPane.showMessageDialog(delegado,
+                "Esta aplicación tiene el bloqueo para el contacto: " + nombreContacto,
+                "Estado de bloqueo",
+                JOptionPane.INFORMATION_MESSAGE);
+        } else if (puedeLock) {
+            JOptionPane.showMessageDialog(delegado,
+                "Se ha adquirido el bloqueo para el contacto: " + nombreContacto,
+                "Estado de bloqueo",
+                JOptionPane.INFORMATION_MESSAGE);
+            lockManager.unlock(nombreContacto); //Liberar inmediatamente el lock adquirido para no bloquear innecesariamente
+        } else {
+            JOptionPane.showMessageDialog(delegado,
+                "¡El contacto " + nombreContacto + " está siendo editado por otra instancia!",
+                "Estado de bloqueo",
+                JOptionPane.WARNING_MESSAGE);
+        }
+    }
+    
     //Maneja los eventos de los botones principales de la interfaz
     @Override
     public void actionPerformed(ActionEvent e) {
@@ -742,9 +812,10 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
                 if ((!categoria.equals(InternationalizationManager.getString("category.choose"))) && (!categoria.equals(""))) {
                     if (validarCampos()) {
                         final Persona contacto = contactos.get(selectedIndex);
-                        final boolean yaBloqueado = ContactLockManager.hasLock(contacto.getNombre());
+                        ContactLockManager lockManager = ContactLockManager.getInstance();
+                        final boolean yaBloqueado = lockManager.hasLock(contacto.getNombre());
                         
-                        if (!yaBloqueado && !ContactLockManager.tryLock(contacto.getNombre())) {
+                        if (!yaBloqueado && !lockManager.tryLock(contacto.getNombre())) {
                             JOptionPane.showMessageDialog(delegado, 
                                 InternationalizationManager.getString("message.contact.locked.modify") + ": " + contacto.getNombre(),
                                 InternationalizationManager.getString("title.contact.locked"),
@@ -794,7 +865,7 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
                                         InternationalizationManager.getString("message.error.modify") + ": " + ex.getMessage());
                                 } finally {
                                     if (!yaBloqueado) {
-                                        ContactLockManager.unlock(contacto.getNombre());
+                                        lockManager.unlock(contacto.getNombre());
                                     }
                                 }
                             }
@@ -907,6 +978,8 @@ public class Logica_ventana implements ActionListener, ListSelectionListener, It
             }
         }
     }
+    
+    
     //Se ejecuta cuando cambia el estado de un ítem en la interfaz
     @Override
     public void itemStateChanged(ItemEvent e) {
