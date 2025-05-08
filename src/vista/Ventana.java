@@ -555,7 +555,7 @@ public class Ventana extends JFrame {
         // Inicializar el controlador
         logica = new Logica_ventana(this);
     }
-    
+    //Actualiza el estado de la tabla de contactos en la interfaz gráfica
     public void actualizarTablaContactos() {
         DefaultTableModel model = (DefaultTableModel) tablaContactos.getModel();
         model.setRowCount(0);
@@ -572,7 +572,7 @@ public class Ventana extends JFrame {
             }
         }
     }
-    
+    //Actualiza todos los textos visibles en la interfaz gráfica de usuario (UI) para reflejar la configuración actual de internacionalización
     private void updateUITexts() {
         setTitle(InternationalizationManager.getString("app.title"));
         
@@ -619,7 +619,7 @@ public class Ventana extends JFrame {
         revalidate();
         repaint();
     }
-    
+    //Actualiza los textos de las etiquetas que muestran las estadísticas de contactos, asegurando que las descripiciones estén localizadas según el idioma actual
     private void actualizarTextosEstadisticas() {
         // Obtener los valores actuales antes de actualizar los textos
         String totalText = lblTotalContactos.getText().replaceAll("[^0-9]", "");
@@ -634,7 +634,7 @@ public class Ventana extends JFrame {
         lblAmigos.setText(InternationalizationManager.getString("stats.friends") + " " + (amigText.isEmpty() ? "0" : amigText));
         lblTrabajo.setText(InternationalizationManager.getString("stats.work") + " " + (trabText.isEmpty() ? "0" : trabText));
     }
-    
+    //Acrualiza el contenido y la apariencia del combo box de categorías en la interfaz gráfica
     private void actualizarComboCategorias() {
         DefaultComboBoxModel<IconComboItem> model = new DefaultComboBoxModel<>();
         ImageIcon defaultIcon = loadIcon("/icons/default.png", 16, 16);
@@ -650,11 +650,11 @@ public class Ventana extends JFrame {
         cmb_categoria.setModel(model);
         cmb_categoria.setRenderer(new IconListRenderer());
     }
-
+    //Verifica si la pestaña actualmente seleccionada en el tabbedPane cprresponde al índice especificado
     private boolean isSelectedIndex(int index) {
         return tabbedPane.getSelectedIndex() == index;
     }
-    
+    //Obtiene la cadena localizada a partir de una clave dada 
     private String getLocalizedString(String key, String defaultValue) {
         try {
             return InternationalizationManager.getString(key);
@@ -662,7 +662,7 @@ public class Ventana extends JFrame {
             return defaultValue;
         }
     }
-    
+    //Configura los atajos de teclado para las acciones principales de la aplicación
     private void configurarAtajos() {
         KeyStroke keyStrokeAdd = KeyStroke.getKeyStroke(KeyEvent.VK_A, KeyEvent.CTRL_DOWN_MASK);
         KeyStroke keyStrokeDelete = KeyStroke.getKeyStroke(KeyEvent.VK_D, KeyEvent.CTRL_DOWN_MASK);
@@ -702,7 +702,7 @@ public class Ventana extends JFrame {
             }
         });
     }
-    
+    //Carga un ícono de la imagen desde un recurso ubicado en el classpath y lo escala a las dimensiones especificadas
     private ImageIcon loadIcon(String path, int width, int height) {
         URL url = getClass().getResource(path);
         if(url != null) {
